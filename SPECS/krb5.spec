@@ -18,7 +18,7 @@ Summary: The Kerberos network authentication system
 Name: krb5
 Version: 1.18.2
 # for prerelease, should be e.g., 0.% {prerelease}.1% { ?dist } (without spaces)
-Release: 15%{?dist}
+Release: 16%{?dist}
 
 # lookaside-cached sources; two downloads and a build artifact
 Source0: https://web.mit.edu/kerberos/dist/krb5/1.18/krb5-%{version}%{prerelease}.tar.gz
@@ -87,6 +87,7 @@ Patch141: Fix-KCM-retrieval-support-for-sssd.patch
 Patch142: Fix-KDC-null-deref-on-bad-encrypted-challenge.patch
 Patch143: Fix-KDC-null-deref-on-TGS-inner-body-null-server.patch
 Patch151: Fix-integer-overflows-in-PAC-parsing.patch
+Patch152: Generate-and-verify-message-MACs-in-libkrad.patch
 
 License: MIT
 URL: http://web.mit.edu/kerberos/www/
@@ -697,6 +698,9 @@ exit 0
 %{_libdir}/libkadm5srv_mit.so.*
 
 %changelog
+* Tue Nov 11 2024 Pratham Patel <ppatel@ciq.com> - 1.18.2-16
+- Fix CVE-2024-3596
+
 * Tue Jan 10 2023 Skip Grube <sgrube@ciq.co> - 1.18.2-15
 - CIQ LTS 8.6 backport: Patch to fix integer overflows in PAC parsing (resolves CVE-2022-42898)
 
@@ -1415,7 +1419,7 @@ exit 0
 
 * Thu Mar 19 2015 Roland Mainz <rmainz@redhat.com> - 1.13.1-2
 - fix for CVE-2014-5355 (#1193939) "krb5: unauthenticated
-  denial of service in recvauth_common() and others"  
+  denial of service in recvauth_common() and others"
 
 * Fri Feb 13 2015 Roland Mainz <rmainz@redhat.com> - 1.13.1-1
 - Update to krb5-1.13.1
@@ -1450,16 +1454,16 @@ exit 0
 
 * Thu Dec 18 2014 Roland Mainz <rmainz@redhat.com> - 1.13-4
 - fix for CVE-2014-5354 (#1174546) "krb5: NULL pointer
-  dereference when using keyless entries"  
+  dereference when using keyless entries"
 
 * Wed Dec 17 2014 Roland Mainz <rmainz@redhat.com> - 1.13-3
 - fix for CVE-2014-5353 (#1174543) "Fix LDAP misused policy
-  name crash"  
+  name crash"
 
 * Wed Oct 29 2014 Roland Mainz <rmainz@redhat.com> - 1.13-2
 - Bump 1%%{?dist} to 2%%{?dist} to workaround RPM sort issue
   which would lead yum updates to treat the last alpha as newer
-  than the final version.  
+  than the final version.
 
 * Wed Oct 29 2014 Roland Mainz <rmainz@redhat.com> - 1.13-1
 - Update from krb5-1.13-alpha1 to final krb5-1.13
