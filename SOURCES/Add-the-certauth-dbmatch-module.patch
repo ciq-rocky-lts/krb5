@@ -1,0 +1,316 @@
+From fab1e4f8553dcf8a573c41bb8ea93912a622aae0 Mon Sep 17 00:00:00 2001
+From: Matt Rogers <mrogers@redhat.com>
+Date: Wed, 15 Mar 2017 19:57:15 -0400
+Subject: [PATCH] Add the certauth dbmatch module
+
+Add and enable the "dbmatch" builtin module.  Add the
+pkinit_client_cert_match() and crypto_req_cert_matching_data() helper
+functions.  Add dbmatch tests to t_pkinit.py.  Add documentation to
+krb5_conf.rst, pkinit.rst, and kadmin_local.rst.
+
+[ghudson@mit.edu: simplified code, edited docs]
+
+ticket: 8562 (new)
+(cherry picked from commit 89634ca049e698d7dd2554f5c49bfc499be96188)
+---
+ doc/admin/admin_commands/kadmin_local.rst     |  7 +++
+ doc/admin/conf_files/krb5_conf.rst            |  5 ++
+ doc/admin/pkinit.rst                          | 20 +++++++
+ src/plugins/preauth/pkinit/pkinit.h           |  7 +++
+ src/plugins/preauth/pkinit/pkinit_crypto.h    |  6 ++
+ .../preauth/pkinit/pkinit_crypto_openssl.c    | 18 ++++++
+ src/plugins/preauth/pkinit/pkinit_matching.c  | 37 +++++++++++++
+ src/plugins/preauth/pkinit/pkinit_srv.c       | 55 +++++++++++++++++++
+ src/tests/t_pkinit.py                         | 37 +++++++++++++
+ 9 files changed, 192 insertions(+)
+
+diff --git a/doc/admin/admin_commands/kadmin_local.rst b/doc/admin/admin_commands/kadmin_local.rst
+index 0e955faf2..cefe6054b 100644
+--- a/doc/admin/admin_commands/kadmin_local.rst
++++ b/doc/admin/admin_commands/kadmin_local.rst
+@@ -661,6 +661,13 @@ KDC:
+     *principal*.  The *value* is a JSON string representing an array
+     of objects, each having optional ``type`` and ``username`` fields.
+ 
++**pkinit_cert_match**
++    Specifies a matching expression that defines the certificate
++    attributes required for the client certificate used by the
++    principal during PKINIT authentication.  The matching expression
++    is in the same format as those used by the **pkinit_cert_match**
++    option in :ref:`krb5.conf(5)`.  (New in release 1.16.)
++
+ This command requires the **modify** privilege.
+ 
+ Alias: **setstr**
+diff --git a/doc/admin/conf_files/krb5_conf.rst b/doc/admin/conf_files/krb5_conf.rst
+index cc996f11a..d428124c9 100644
+--- a/doc/admin/conf_files/krb5_conf.rst
++++ b/doc/admin/conf_files/krb5_conf.rst
+@@ -883,6 +883,11 @@ following built-in modules exist for this interface:
+     Extended Key Usage attribute consistent with the
+     **pkinit_eku_checking** value for the realm.
+ 
++**dbmatch**
++    This module authorizes or rejects the certificate according to
++    whether it matches the **pkinit_cert_match** string attribute on
++    the client principal, if that attribute is present.
++
+ 
+ PKINIT options
+ --------------
+diff --git a/doc/admin/pkinit.rst b/doc/admin/pkinit.rst
+index 460d75d1e..c601c5c9e 100644
+--- a/doc/admin/pkinit.rst
++++ b/doc/admin/pkinit.rst
+@@ -223,6 +223,26 @@ time as follows::
+ 
+     kadmin -q 'add_principal +requires_preauth -nokey YOUR_PRINCNAME'
+ 
++By default, the KDC requires PKINIT client certificates to have the
++standard Extended Key Usage and Subject Alternative Name attributes
++for PKINIT.  Starting in release 1.16, it is possible to authorize
++client certificates based on the subject or other criteria instead of
++the standard PKINIT Subject Alternative Name, by setting the
++**pkinit_cert_match** string attribute on each client principal entry.
++For example::
++
++    kadmin set_string user@REALM pkinit_cert_match "<SUBJECT>CN=user@REALM$"
++
++The **pkinit_cert_match** string attribute follows the syntax used by
++the :ref:`krb5.conf(5)` **pkinit_cert_match** relation.  To allow the
++use of non-PKINIT client certificates, it will also be necessary to
++disable key usage checking using the **pkinit_eku_checking** relation;
++for example::
++
++    [kdcdefaults]
++        pkinit_eku_checking = none
++
++
+ 
+ Configuring the clients
+ -----------------------
+diff --git a/src/plugins/preauth/pkinit/pkinit.h b/src/plugins/preauth/pkinit/pkinit.h
+index a49f3078e..430b3f334 100644
+--- a/src/plugins/preauth/pkinit/pkinit.h
++++ b/src/plugins/preauth/pkinit/pkinit.h
+@@ -292,6 +292,13 @@ krb5_error_code pkinit_cert_matching
+ 	pkinit_identity_crypto_context id_cryptoctx,
+ 	krb5_principal princ);
+ 
++krb5_error_code pkinit_client_cert_match
++	(krb5_context context,
++	pkinit_plg_crypto_context plgctx,
++	pkinit_req_crypto_context reqctx,
++	const char *match_rule,
++	krb5_boolean *matched);
++
+ /*
+  * Client's list of identities for which it needs PINs or passwords
+  */
+diff --git a/src/plugins/preauth/pkinit/pkinit_crypto.h b/src/plugins/preauth/pkinit/pkinit_crypto.h
+index b6e4e0ac3..149923b1d 100644
+--- a/src/plugins/preauth/pkinit/pkinit_crypto.h
++++ b/src/plugins/preauth/pkinit/pkinit_crypto.h
+@@ -637,4 +637,10 @@ krb5_error_code
+ crypto_encode_der_cert(krb5_context context, pkinit_req_crypto_context reqctx,
+ 		       uint8_t **der_out, size_t *der_len);
+ 
++krb5_error_code
++crypto_req_cert_matching_data(krb5_context context,
++			      pkinit_plg_crypto_context plgctx,
++			      pkinit_req_crypto_context reqctx,
++			      pkinit_cert_matching_data **md_out);
++
+ #endif	/* _PKINIT_CRYPTO_H */
+diff --git a/src/plugins/preauth/pkinit/pkinit_crypto_openssl.c b/src/plugins/preauth/pkinit/pkinit_crypto_openssl.c
+index 3949eb9c2..534161b19 100644
+--- a/src/plugins/preauth/pkinit/pkinit_crypto_openssl.c
++++ b/src/plugins/preauth/pkinit/pkinit_crypto_openssl.c
+@@ -6099,3 +6099,21 @@ crypto_encode_der_cert(krb5_context context, pkinit_req_crypto_context reqctx,
+     *der_len = len;
+     return 0;
+ }
++
++/*
++ * Get the certificate matching data from the request certificate.
++ */
++krb5_error_code
++crypto_req_cert_matching_data(krb5_context context,
++                              pkinit_plg_crypto_context plgctx,
++                              pkinit_req_crypto_context reqctx,
++                              pkinit_cert_matching_data **md_out)
++{
++    *md_out = NULL;
++
++    if (reqctx == NULL || reqctx->received_cert == NULL)
++        return ENOENT;
++
++    return get_matching_data(context, plgctx, reqctx, reqctx->received_cert,
++                             md_out);
++}
+diff --git a/src/plugins/preauth/pkinit/pkinit_matching.c b/src/plugins/preauth/pkinit/pkinit_matching.c
+index d929fb3c0..c2a4c084d 100644
+--- a/src/plugins/preauth/pkinit/pkinit_matching.c
++++ b/src/plugins/preauth/pkinit/pkinit_matching.c
+@@ -724,3 +724,40 @@ cleanup:
+     crypto_cert_free_matching_data_list(context, matchdata);
+     return retval;
+ }
++
++krb5_error_code
++pkinit_client_cert_match(krb5_context context,
++                         pkinit_plg_crypto_context plgctx,
++                         pkinit_req_crypto_context reqctx,
++                         const char *match_rule,
++                         krb5_boolean *matched)
++{
++    krb5_error_code ret;
++    pkinit_cert_matching_data *md = NULL;
++    rule_component *rc = NULL;
++    int comp_match = 0;
++    rule_set *rs = NULL;
++
++    *matched = FALSE;
++    ret = parse_rule_set(context, match_rule, &rs);
++    if (ret)
++        goto cleanup;
++
++    ret = crypto_req_cert_matching_data(context, plgctx, reqctx, &md);
++    if (ret)
++        goto cleanup;
++
++    for (rc = rs->crs; rc != NULL; rc = rc->next) {
++        comp_match = component_match(context, rc, md);
++        if ((comp_match && rs->relation == relation_or) ||
++            (!comp_match && rs->relation == relation_and)) {
++            break;
++        }
++    }
++    *matched = comp_match;
++
++cleanup:
++    free_rule_set(context, rs);
++    crypto_cert_free_matching_data(context, md);
++    return ret;
++}
+diff --git a/src/plugins/preauth/pkinit/pkinit_srv.c b/src/plugins/preauth/pkinit/pkinit_srv.c
+index 42ad45fe4..7d86e597e 100644
+--- a/src/plugins/preauth/pkinit/pkinit_srv.c
++++ b/src/plugins/preauth/pkinit/pkinit_srv.c
+@@ -1537,6 +1537,56 @@ certauth_pkinit_eku_initvt(krb5_context context, int maj_ver, int min_ver,
+     return 0;
+ }
+ 
++/*
++ * Do certificate auth based on a match expression in the pkinit_cert_match
++ * attribute string.  An expression should be in the same form as those used
++ * for the pkinit_cert_match configuration option.
++ */
++static krb5_error_code
++dbmatch_authorize(krb5_context context, krb5_certauth_moddata moddata,
++                  const uint8_t *cert, size_t cert_len,
++                  krb5_const_principal princ, const void *opts,
++                  const krb5_db_entry *db_entry, char ***authinds_out)
++{
++    krb5_error_code ret;
++    const struct certauth_req_opts *req_opts = opts;
++    char *pattern;
++    krb5_boolean matched;
++
++    *authinds_out = NULL;
++
++    /* Fetch the matching pattern.  Pass if it isn't specified. */
++    ret = req_opts->cb->get_string(context, req_opts->rock,
++                                   "pkinit_cert_match", &pattern);
++    if (ret)
++        return ret;
++    if (pattern == NULL)
++        return KRB5_PLUGIN_NO_HANDLE;
++
++    /* Check the certificate against the match expression. */
++    ret = pkinit_client_cert_match(context, req_opts->plgctx->cryptoctx,
++                                   req_opts->reqctx->cryptoctx, pattern,
++                                   &matched);
++    req_opts->cb->free_string(context, req_opts->rock, pattern);
++    if (ret)
++        return ret;
++    return matched ? 0 : KRB5KDC_ERR_CERTIFICATE_MISMATCH;
++}
++
++static krb5_error_code
++certauth_dbmatch_initvt(krb5_context context, int maj_ver, int min_ver,
++                        krb5_plugin_vtable vtable)
++{
++    krb5_certauth_vtable vt;
++
++    if (maj_ver != 1)
++        return KRB5_PLUGIN_VER_NOTSUPP;
++    vt = (krb5_certauth_vtable)vtable;
++    vt->name = "dbmatch";
++    vt->authorize = dbmatch_authorize;
++    return 0;
++}
++
+ static krb5_error_code
+ load_certauth_plugins(krb5_context context, certauth_handle **handle_out)
+ {
+@@ -1556,6 +1606,11 @@ load_certauth_plugins(krb5_context context, certauth_handle **handle_out)
+     if (ret)
+         goto cleanup;
+ 
++    ret = k5_plugin_register(context, PLUGIN_INTERFACE_CERTAUTH, "dbmatch",
++                             certauth_dbmatch_initvt);
++    if (ret)
++        goto cleanup;
++
+     ret = k5_plugin_load_all(context, PLUGIN_INTERFACE_CERTAUTH, &modules);
+     if (ret)
+         goto cleanup;
+diff --git a/src/tests/t_pkinit.py b/src/tests/t_pkinit.py
+index 64ff2393a..5a0624de7 100755
+--- a/src/tests/t_pkinit.py
++++ b/src/tests/t_pkinit.py
+@@ -305,6 +305,43 @@ realm.run(['./responder', '-X', 'X509_user_identity=%s' % p12_enc_identity,
+ realm.klist(realm.user_princ)
+ realm.run([kvno, realm.host_princ])
+ 
++# Match a single rule.
++rule = '<SAN>^user@KRBTEST.COM$'
++realm.run([kadminl, 'setstr', realm.user_princ, 'pkinit_cert_match', rule])
++realm.kinit(realm.user_princ,
++            flags=['-X', 'X509_user_identity=%s' % p12_identity])
++realm.klist(realm.user_princ)
++
++# Match a combined rule (default prefix is &&).
++rule = '<SUBJECT>CN=user$<KU>digitalSignature,keyEncipherment'
++realm.run([kadminl, 'setstr', realm.user_princ, 'pkinit_cert_match', rule])
++realm.kinit(realm.user_princ,
++            flags=['-X', 'X509_user_identity=%s' % p12_identity])
++realm.klist(realm.user_princ)
++
++# Fail an && rule.
++rule = '&&<SUBJECT>O=OTHER.COM<SAN>^user@KRBTEST.COM$'
++realm.run([kadminl, 'setstr', realm.user_princ, 'pkinit_cert_match', rule])
++msg = 'kinit: Certificate mismatch while getting initial credentials'
++realm.kinit(realm.user_princ,
++            flags=['-X', 'X509_user_identity=%s' % p12_identity],
++            expected_code=1, expected_msg=msg)
++
++# Pass an || rule.
++rule = '||<SUBJECT>O=KRBTEST.COM<SAN>^otheruser@KRBTEST.COM$'
++realm.run([kadminl, 'setstr', realm.user_princ, 'pkinit_cert_match', rule])
++realm.kinit(realm.user_princ,
++            flags=['-X', 'X509_user_identity=%s' % p12_identity])
++realm.klist(realm.user_princ)
++
++# Fail an || rule.
++rule = '||<SUBJECT>O=OTHER.COM<SAN>^otheruser@KRBTEST.COM$'
++realm.run([kadminl, 'setstr', realm.user_princ, 'pkinit_cert_match', rule])
++msg = 'kinit: Certificate mismatch while getting initial credentials'
++realm.kinit(realm.user_princ,
++            flags=['-X', 'X509_user_identity=%s' % p12_identity],
++            expected_code=1, expected_msg=msg)
++
+ if not have_soft_pkcs11:
+     skip_rest('PKINIT PKCS11 tests', 'soft-pkcs11.so not found')
+ 
