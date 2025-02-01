@@ -12,7 +12,7 @@
 Summary: The Kerberos network authentication system
 Name: krb5
 Version: 1.15.1
-Release: 56%{?dist}
+Release: 57%{?dist}
 
 # - Maybe we should explode from the now-available-to-everybody tarball instead?
 # http://web.mit.edu/kerberos/dist/krb5/1.13/krb5-1.13.2-signed.tar
@@ -146,6 +146,7 @@ Patch233: Try-harder-to-avoid-password-change-replay-errors.patch
 Patch234: Fix-integer-overflows-in-PAC-parsing.patch
 Patch235: Add-a-simple-DER-support-header.patch
 Patch236: CVE-2024-37370-37371-krb5-GSS-message-token-handling.patch
+Patch237: CVE-2024-3596.patch
 
 License: MIT
 URL: http://web.mit.edu/kerberos/www/
@@ -932,6 +933,9 @@ exit 0
 %{_libdir}/libkadm5srv_mit.so.*
 
 %changelog
+* Wed Jan 08 2025 Matt Hink <mhink@ciq.com> - 1.15.1-57
+- Fix CVE-2024-3596
+
 * Wed Nov 20 2024 Matt Hink <mhink@ciq.com> - 1.15.1-56
 - Fix CVE-2024-37370 CVE-2024-37371
 
