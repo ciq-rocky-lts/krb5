@@ -1,0 +1,120 @@
+From 063e17e0c5cd1462db977e3ab628d9bb3aaeac31 Mon Sep 17 00:00:00 2001
+From: Andrew Jorgensen <ajorgens@ciq.com>
+Date: Tue, 25 Aug 2026 12:07:16 -0700
+Subject: [PATCH] [downstream] Share one OpenSSL legacy libctx process-wide
+
+Patch "[downstream] Do not block HMAC-MD4/5 in FIPS mode" placed the
+private OSSL_LIB_CTX used in FIPS mode in a thread_local that nothing
+frees at thread exit.  The context and the two providers it loads each
+take pthread keys, so a process retiring worker threads reaches
+PTHREAD_KEYS_MAX -- after 253 retired threads, measured on 9.6 -- and
+from then on OSSL_LIB_CTX_new() returns NULL and every HMAC fails with
+KRB5_CRYPTO_INTERNAL until the process restarts.
+
+Create the context once per process instead, guarded by a mutex so that
+the lazy initialization and its retry after failure keep the semantics
+they had per thread.  OpenSSL documents no thread-safety guarantee for an
+OSSL_LIB_CTX, but the context it supplies by default is a process-wide
+singleton that every consumer fetches from concurrently, and upstream
+krb5 passes that one to EVP_MAC_fetch for every HMAC.
+
+Never freeing it is deliberate.  Per OPENSSL_thread_stop(3) the library
+reclaims a thread's resources for a context at thread exit only while the
+context has not been freed, and freeing it reclaims only the calling
+thread's, so freeing would orphan the state of every other thread.
+
+deinit_ossl_legacy_ctx() now clears what it releases.  It runs twice when
+a first attempt fails after a provider loads and a later one fails before
+that pointer is reassigned, and would otherwise unload and free through
+dangling pointers.
+
+Repeatedly loading and unloading the library strands a context per cycle
+and reaches the same exhaustion, with or without this change.
+---
+ src/lib/crypto/openssl/common.c | 34 +++++++++++++++++++++++++--------
+ 1 file changed, 26 insertions(+), 8 deletions(-)
+
+diff --git a/src/lib/crypto/openssl/common.c b/src/lib/crypto/openssl/common.c
+index ced43fd..42d8ba4 100644
+--- a/src/lib/crypto/openssl/common.c
++++ b/src/lib/crypto/openssl/common.c
+@@ -4,7 +4,6 @@
+ 
+ #include <openssl/provider.h>
+ #include <openssl/fips.h>
+-#include <threads.h>
+ #include <stdbool.h>
+ 
+ typedef struct ossl_legacy_context {
+@@ -14,7 +13,10 @@ typedef struct ossl_legacy_context {
+     OSSL_PROVIDER *legacy_provider;
+ } ossl_legacy_context_t;
+ 
+-static thread_local ossl_legacy_context_t g_ossl_legacy_ctx;
++static ossl_legacy_context_t g_ossl_legacy_ctx;
++static k5_once_t g_ossl_legacy_once = K5_ONCE_INIT;
++static k5_mutex_t g_ossl_legacy_mutex = K5_MUTEX_PARTIAL_INITIALIZER;
++static krb5_error_code g_ossl_legacy_mutex_err;
+ 
+ static krb5_error_code
+ init_ossl_legacy_ctx(ossl_legacy_context_t *ctx)
+@@ -39,16 +41,25 @@ deinit_ossl_legacy_ctx(ossl_legacy_context_t *ctx)
+ {
+     if (ctx->legacy_provider)
+         OSSL_PROVIDER_unload(ctx->legacy_provider);
++    ctx->legacy_provider = NULL;
+ 
+     if (ctx->default_provider)
+         OSSL_PROVIDER_unload(ctx->default_provider);
++    ctx->default_provider = NULL;
+ 
+     if (ctx->libctx)
+         OSSL_LIB_CTX_free(ctx->libctx);
++    ctx->libctx = NULL;
+ 
+     ctx->initialized = false;
+ }
+ 
++static void
++finish_ossl_legacy_mutex(void)
++{
++    g_ossl_legacy_mutex_err = k5_mutex_finish_init(&g_ossl_legacy_mutex);
++}
++
+ krb5_error_code
+ k5_get_ossl_legacy_libctx(OSSL_LIB_CTX **libctx)
+ {
+@@ -61,17 +72,24 @@ k5_get_ossl_legacy_libctx(OSSL_LIB_CTX **libctx)
+         goto end;
+     }
+ 
++    if (k5_once(&g_ossl_legacy_once, finish_ossl_legacy_mutex) != 0 ||
++        g_ossl_legacy_mutex_err != 0) {
++        err = KRB5_CRYPTO_INTERNAL;
++        goto end;
++    }
++
++    k5_mutex_lock(&g_ossl_legacy_mutex);
++
++    err = 0;
+     if (!g_ossl_legacy_ctx.initialized) {
+         err = init_ossl_legacy_ctx(&g_ossl_legacy_ctx);
+-        if (err) {
++        if (err)
+             deinit_ossl_legacy_ctx(&g_ossl_legacy_ctx);
+-            goto end;
+-        }
+     }
+-
+-    if (libctx)
++    if (err == 0 && libctx)
+         *libctx = g_ossl_legacy_ctx.libctx;
+-    err = 0;
++
++    k5_mutex_unlock(&g_ossl_legacy_mutex);
+ 
+ end:
+     return err;
+-- 
+2.55.0
+

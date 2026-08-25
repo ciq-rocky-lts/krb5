@@ -10,7 +10,7 @@
 #
 # baserelease is what we have standardized across Fedora and what
 # rpmdev-bumpspec knows how to handle.
-%global baserelease 8.1
+%global baserelease 8.2
 
 # This should be e.g. beta1 or %%nil
 %global pre_release %nil
@@ -101,6 +101,8 @@ Patch0038: 0038-Add-PKINIT-paChecksum2-from-MS-PKCA-v20230920.patch
 Patch0039: 0039-downstream-Do-not-block-HMAC-MD4-5-in-FIPS-mode.patch
 # CVE-2026-40355, CVE-2026-40356 (upstream commit 2c0bfbb — ulog block resize efficiency)
 Patch40: krb5-1.21.1-CVE-2026-40355.patch
+# Repairs the thread_local OSSL_LIB_CTX introduced by Patch0039
+Patch41: krb5-1.21.1-fips-libctx-leak.patch
 
 License: MIT
 URL: https://web.mit.edu/kerberos/www/
@@ -748,6 +750,10 @@ exit 0
 %{_datarootdir}/%{name}-tests/%{_arch}
 
 %changelog
+* Tue Aug 25 2026 Andrew Jorgensen <ajorgens@ciq.com> - 1.21.1-8.2
+- Keep Kerberos authentication working in FIPS mode in long-running
+  processes that retire threads
+
 * Wed Jul 01 2026 Jason Rodriguez <jrodriguez@ciq.com> - 1.21.1-8.1
 - Fix CVE-2026-40355, CVE-2026-40356: ulog block resize heap overflow
   Upstream: 2e75f0d9362fb979f5fc92829431a590a130929f
