@@ -10,7 +10,7 @@
 #
 # baserelease is what we have standardized across Fedora and what
 # rpmdev-bumpspec knows how to handle.
-%global baserelease 8.2
+%global baserelease 8.3
 
 # This should be e.g. beta1 or %%nil
 %global pre_release %nil
@@ -103,6 +103,8 @@ Patch0039: 0039-downstream-Do-not-block-HMAC-MD4-5-in-FIPS-mode.patch
 Patch40: krb5-1.21.1-CVE-2026-40355.patch
 # Repairs the thread_local OSSL_LIB_CTX introduced by Patch0039
 Patch41: krb5-1.21.1-fips-libctx-leak.patch
+# Fix the use of fips provider for hmac when in FIPS mode.
+Patch42: fips_hmac.patch
 
 License: MIT
 URL: https://web.mit.edu/kerberos/www/
@@ -750,6 +752,10 @@ exit 0
 %{_datarootdir}/%{name}-tests/%{_arch}
 
 %changelog
+* Wed Aug 26 2026 Jeremy Allison <jallison@ciq.com> - 1.21.1-8.3
+- When in FIPS mode ensure that the fips provider is used for hmac
+  crypto operations other than MD5 / MD4.
+
 * Tue Aug 25 2026 Andrew Jorgensen <ajorgens@ciq.com> - 1.21.1-8.2
 - Keep Kerberos authentication working in FIPS mode in long-running
   processes that retire threads

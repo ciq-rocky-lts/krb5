@@ -1,0 +1,35 @@
+From 4eefb3642c96c47898377975e9854130f71e8ad9 Mon Sep 17 00:00:00 2001
+From: Jeremy Allison <jallison@ciq.com>
+Date: Wed, 26 Aug 2026 13:39:04 -0700
+Subject: [PATCH] Fix krb5int_hmac_keyblock() to use the legacy libctx when the
+ digest is MD4 or MD5, and pass NULL for everything else.
+
+Signed-off-by: Jeremy Allison <jallison@ciq.com>
+---
+ src/lib/crypto/openssl/hmac.c | 10 +++++++---
+ 1 file changed, 7 insertions(+), 3 deletions(-)
+
+diff --git a/src/lib/crypto/openssl/hmac.c b/src/lib/crypto/openssl/hmac.c
+index 945586a..7c55414 100644
+--- a/src/lib/crypto/openssl/hmac.c
++++ b/src/lib/crypto/openssl/hmac.c
+@@ -141,9 +141,13 @@ krb5int_hmac_keyblock(const struct krb5_hash_provider *hash,
+     if (output->length < hash->hashsize)
+         return KRB5_BAD_MSIZE;
+ 
+-    err = k5_get_ossl_legacy_libctx(&ossl_libctx);
+-    if (err)
+-        return err;
++    if (hash == &krb5int_hash_md4 || hash == &krb5int_hash_md5) {
++        err = k5_get_ossl_legacy_libctx(&ossl_libctx);
++        if (err)
++            return err;
++    } else {
++        ossl_libctx = NULL;
++    }
+ 
+     mac = EVP_MAC_fetch(ossl_libctx, "HMAC", NULL);
+     if (mac == NULL)
+-- 
+2.52.0
+
