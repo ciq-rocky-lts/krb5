@@ -38,7 +38,7 @@
 Summary: The Kerberos network authentication system
 Name: krb5
 Version: %{krb5_version}
-Release: %{krb5_release}%{?dist}
+Release: %{krb5_release}.1%{?dist}
 
 # rharwood has trust path to signing key and verifies on check-in
 Source0: https://web.mit.edu/kerberos/dist/krb5/%{krb5_version_major_minor}/krb5-%{krb5_version}%{?krb5_pre_release}.tar.gz
@@ -105,6 +105,24 @@ Patch40: krb5-1.21.1-CVE-2026-40355.patch
 Patch41: krb5-1.21.1-fips-libctx-leak.patch
 # Fix the use of fips provider for hmac when in FIPS mode.
 Patch42: fips_hmac.patch
+# CVE-2026-112314 - verbatim from Rocky Linux: https://git.rockylinux.org/staging/rpms/krb5/-/raw/254ea1e7ab0befc12417b5bb75baa23834075051/SOURCES/0081-Fix-leak-in-RPC-client-on-mismatched-ID.patch
+Patch43: krb5-1.21.1-CVE-2026-112314.patch
+# CVE-2026-112320 - verbatim from Rocky Linux: https://git.rockylinux.org/staging/rpms/krb5/-/raw/254ea1e7ab0befc12417b5bb75baa23834075051/SOURCES/0077-Fix-RPC-leak-when-client-switches-from-RPCSEC_GSS.patch
+Patch44: krb5-1.21.1-CVE-2026-112320.patch
+# CVE-2026-112321 - verbatim from Rocky Linux: https://git.rockylinux.org/staging/rpms/krb5/-/raw/254ea1e7ab0befc12417b5bb75baa23834075051/SOURCES/0076-Free-call_arg-on-all-AUTH_GSSAPI-exit-paths.patch
+Patch45: krb5-1.21.1-CVE-2026-112321.patch
+# CVE-2026-112322, CVE-2026-112323 - verbatim from Rocky Linux: https://git.rockylinux.org/staging/rpms/krb5/-/raw/254ea1e7ab0befc12417b5bb75baa23834075051/SOURCES/0075-Disable-GSSRPC-AUTH_GSSAPI-flavor-by-default.patch
+Patch46: krb5-1.21.1-CVE-2026-112322.patch
+# CVE-2026-119079 - verbatim from Rocky Linux: https://git.rockylinux.org/staging/rpms/krb5/-/raw/254ea1e7ab0befc12417b5bb75baa23834075051/SOURCES/0088-Avoid-repeated-reallocation-when-decoding-ASN.1.patch
+Patch47: krb5-1.21.1-CVE-2026-119079.patch
+# CVE-2026-107364 - verbatim from Rocky Linux: https://git.rockylinux.org/staging/rpms/krb5/-/raw/254ea1e7ab0befc12417b5bb75baa23834075051/SOURCES/0069-Prevent-KDC-read-overrun-in-ASN.1-decoder.patch
+Patch48: krb5-1.21.1-CVE-2026-107364.patch
+# CVE-2026-118380 - verbatim from Rocky Linux: https://git.rockylinux.org/staging/rpms/krb5/-/raw/254ea1e7ab0befc12417b5bb75baa23834075051/SOURCES/0074-Properly-verify-RPCSEC_GSS-call-arguments.patch
+Patch49: krb5-1.21.1-CVE-2026-118380.patch
+# CVE-2026-71199 - verbatim from Rocky Linux: https://git.rockylinux.org/staging/rpms/krb5/-/raw/254ea1e7ab0befc12417b5bb75baa23834075051/SOURCES/0064-Check-for-keyed-checksums-in-CAMMAC-verifiers.patch
+Patch50: krb5-1.21.1-CVE-2026-71199.patch
+# CVE-2026-71200 - verbatim from Rocky Linux: https://git.rockylinux.org/staging/rpms/krb5/-/raw/254ea1e7ab0befc12417b5bb75baa23834075051/SOURCES/0063-Prevent-null-dereference-in-PKINIT-CMS-processing.patch
+Patch51: krb5-1.21.1-CVE-2026-71200.patch
 
 License: MIT
 URL: https://web.mit.edu/kerberos/www/
@@ -752,6 +770,17 @@ exit 0
 %{_datarootdir}/%{name}-tests/%{_arch}
 
 %changelog
+* Wed Nov 18 2026 pmp <packager@ciq.com> - 1.21.1-8.3.1
+- Fix CVE-2026-112314
+- Fix CVE-2026-112320
+- Fix CVE-2026-112321
+- Fix CVE-2026-112322
+- Fix CVE-2026-119079
+- Fix CVE-2026-107364
+- Fix CVE-2026-118380
+- Fix CVE-2026-71199
+- Fix CVE-2026-71200, CVE-2026-112323
+
 * Wed Aug 26 2026 Jeremy Allison <jallison@ciq.com> - 1.21.1-8.3
 - When in FIPS mode ensure that the fips provider is used for hmac
   crypto operations other than MD5 / MD4.
